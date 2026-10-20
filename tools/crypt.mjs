@@ -23,10 +23,12 @@ if (mode === 'decrypt') {
   const old = JSON.parse(page.match(/var GATE = (\{.*?\});\n/s)[1]);
   const salt = Buffer.from(old.salt, 'base64'), iter = old.iter, iv = crypto.randomBytes(12);
   const k = await key(salt, iter, 'encrypt');
-  const gz = zlib.gzipSync(fs.readFileSync(inFile), { level: 9 });
+  const built = new Date().toISOString();
+  const app = fs.readFileSync(inFile, 'utf8').replace(/var BUILT_AT = '[^']*';/, () => `var BUILT_AT = '${built}';`);
+  const gz = zlib.gzipSync(Buffer.from(app), { level: 9 });
   const ct = Buffer.from(await sub.encrypt({ name: 'AES-GCM', iv }, k, gz));
   const users = emails.split(',').map(e => e.trim().toLowerCase()).filter(Boolean).map(sha);
-  const GATE = { v: 2, iter, salt: old.salt, iv: iv.toString('base64'), ct: ct.toString('base64'), users };
+  const GATE = { v: 2, iter, salt: old.salt, iv: iv.toString('base64'), ct: ct.toString('base64'), users, built };
   fs.writeFileSync(outFile, page.replace(/var GATE = \{.*?\};\n/s, () => 'var GATE = ' + JSON.stringify(GATE) + ';\n'));
   console.log('encrypted', inFile, '->', outFile, 'users:', users.length, 'ct bytes:', ct.length);
 } else { console.error('mode must be decrypt or encrypt'); process.exit(1); }
