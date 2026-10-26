@@ -1,0 +1,7 @@
+[
+  { "email": "skoeswandi@tatametal.com",       "name": "Stephanus Koeswandi", "role": "admin" },
+  { "email": "joseph.riswandi@tatametal.com",  "name": "Joseph Riswandi",     "role": "costing" },
+  { "email": "krismanto.susilo@tatametal.com", "name": "Krismanto Susilo",    "role": "purchasing" },
+  { "email": "dersanti.halim@tatametal.com",   "name": "Dersanti Halim",      "role": "vicegm" },
+  { "email": "jeff.mario@tatametal.com",       "name": "Jeff Mario",          "role": "exim" }
+]

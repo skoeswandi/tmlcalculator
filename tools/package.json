@@ -1,0 +1,10 @@
+{
+  "name": "tmlcalculator-tools",
+  "private": true,
+  "type": "module",
+  "description": "Build, migrate and seed helpers for the TML Cost Calculator (Supabase edition)",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "pg": "^8.13.1"
+  }
+}
