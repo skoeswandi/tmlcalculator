@@ -23,15 +23,20 @@ let app = fs.readFileSync(appPath, 'utf8');
 fs.mkdirSync(path.join(root, 'build'), { recursive: true });
 
 // 1. the static shim is the first <script> block; it carries VERSION, BUILT_AT and the SEED
-const mark = app.indexOf('static runtime shim');
+let mark = app.indexOf('static runtime shim'), kind = 'static';
+if (mark < 0) { mark = app.indexOf('Supabase runtime shim'); kind = 'supabase'; }   // a page pulled back from the bucket
 const open = mark < 0 ? -1 : app.lastIndexOf('<script', mark), close = mark < 0 ? -1 : app.indexOf('</script>', mark);
-if (mark < 0 || open < 0 || close < 0) { console.error('static shim block not found in ' + appPath); process.exit(1); }
-const shimOld = app.slice(open, close + '</script>'.length);
+if (mark < 0 || open < 0 || close < 0) { console.error('no runtime shim block found in ' + appPath); process.exit(1); }
+let shimOld = app.slice(open, close + '</script>'.length);
+if (kind === 'supabase') {   // drop the supabase-js tag that precedes it too; it is re-added below
+  const tagAt = app.lastIndexOf('<script src=', open);
+  if (tagAt >= 0 && /^<script src="[^"]*supabase-js[^"]*"[^>]*><\/script>\s*$/.test(app.slice(tagAt, open))) shimOld = app.slice(tagAt, close + '</script>'.length);
+}
 const version = (/var VERSION = '([^']*)'/.exec(shimOld) || [])[1] || 'Beta';
 const seedSrc = /var SEED = (\{[\s\S]*?\});\n/.exec(shimOld);
-if (!seedSrc) { console.error('SEED not found inside the static shim'); process.exit(1); }
-const seed = JSON.parse(seedSrc[1]);
-fs.writeFileSync(path.join(root, 'build', 'seed.json'), JSON.stringify(seed));
+let seed = null;
+if (seedSrc) { seed = JSON.parse(seedSrc[1]); fs.writeFileSync(path.join(root, 'build', 'seed.json'), JSON.stringify(seed)); }
+else if (kind === 'static') { console.error('SEED not found inside the static shim'); process.exit(1); }
 const builtAt = new Date().toISOString();
 const shimNew = fs.readFileSync(path.join(root, 'tools', 'sb-shim.js'), 'utf8')
   .replace('__VERSION__', version).replace('__BUILT_AT__', builtAt).replace('__SUPABASE_URL__', URL_).replace('__SUPABASE_ANON_KEY__', ANON);
@@ -46,15 +51,15 @@ if (cut < 0) { console.error('index.html has no <script>'); process.exit(1); }
 let shell = gate.slice(0, cut);
 shell = shell.replace(/<p class="foot">[\s\S]*?<\/p>/, `<p class="foot"><b>PT Tata Metal Lestari — internal pricing tool.</b><br>
   Sign in with your own account. Data is shared live between users and every change is logged.<br><span id="gbuild">Build ${builtAt.slice(0, 16).replace('T', ' ')} UTC</span></p>`);
-shell = shell.replace('<button id="signin" type="submit">Sign in</button>',
+if (!shell.includes('id="np-wrap"')) shell = shell.replace('<button id="signin" type="submit">Sign in</button>',   // idempotent: index.html may already be a shell
   `<div id="np-wrap" hidden><label for="newpw">New password</label><input id="newpw" name="newpw" type="password" autocomplete="new-password" minlength="8"></div>
       <button id="signin" type="submit">Sign in</button>
       <p class="links"><a href="#" id="forgot">Forgot password?</a></p>`);
-shell = shell.replace('</style>', `  .links { margin: 12px 0 0; font-size: 13px; text-align: center; } .links a { color: var(--accent); }\n</style>`);
+if (!shell.includes('.links {')) shell = shell.replace('</style>', `  .links { margin: 12px 0 0; font-size: 13px; text-align: center; } .links a { color: var(--accent); }\n</style>`);
 const shellJs = fs.readFileSync(path.join(root, 'tools', 'sb-shell.js'), 'utf8').replace('__SUPABASE_URL__', URL_).replace('__SUPABASE_ANON_KEY__', ANON);
 shell += `<script src="${SUPABASE_JS}" crossorigin="anonymous"></script>\n<script>\n${shellJs}\n</script>\n</body>\n</html>\n`;
 fs.writeFileSync(path.join(root, 'build', 'index.sb.html'), shell);
 
 console.log(`app bundle  build/app.sb.html   ${(app.length / 1024).toFixed(0)} KB  (${version}, built ${builtAt})`);
 console.log(`sign-in     build/index.sb.html ${(shell.length / 1024).toFixed(0)} KB`);
-console.log(`seed        build/seed.json     ${Object.keys(seed).length} documents`);
+console.log(seed ? `seed        build/seed.json     ${Object.keys(seed).length} documents` : 'seed        (input had no SEED; data stays in the database)');

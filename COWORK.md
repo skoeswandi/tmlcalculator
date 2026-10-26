@@ -15,6 +15,16 @@ The calculator moved to Supabase. Read this before changing anything here.
   and roles. Users see each other's changes live. The claude.ai artifact's own database is no longer the source
   of truth and cannot reach Supabase (the artifact sandbox blocks outbound connections; tested 26 Oct 2026).
 
+## The rule: always in sync with Netlify and Supabase
+
+Nothing is finished until it is published. End every piece of work with
+```sh
+node tools/sb-publish.mjs "what changed"        # add --data when build/seed.json changed
+```
+which builds the page, uploads the bundle to Supabase, updates `index.html` if the sign-in page changed, and
+commits + pushes so Netlify deploys. Start every piece of data work with `node tools/sb-seed.mjs --export`.
+If `build/app.html` is missing, `node tools/sb-seed.mjs --pull-app` restores it from what users are running.
+
 ## Code changes (the way that works)
 
 1. Make your edits to `build/app.html` directly, or produce a `pairs.json` + `apply.py` kit against it (as with
