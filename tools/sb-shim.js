@@ -290,6 +290,7 @@
   }
   function applyRemote(row) {
     if (!row || !row.path) return;
+    if (row.updated_at && row.updated_at > lastSyncSeen) lastSyncSeen = row.updated_at;
     if (docs.has(row.path) && sameJson(docs.get(row.path), row.data)) return;   // our own write echoed back
     docs.set(row.path, row.data); notify(row.path);
   }
@@ -299,9 +300,11 @@
   }
   function applyRemoteLog(row) {
     if (!row) return;
-    if (log.some(function (e) { return e.at === row.at && e.uid === row.uid && e.path === row.path && e.op === row.op; })) return;
+    var ms = Date.parse(row.at);   // Postgres returns '+00:00' with microseconds, the page sent 'Z' with milliseconds
+    if (log.some(function (e) { return Date.parse(e.at) === ms && e.uid === row.uid && e.path === row.path && e.op === row.op; })) return;
     pushLog(row);
   }
+  var lastSyncSeen = '';
   var ready = (async function () {
     var s = (await sb.auth.getSession()).data.session;
     if (!s) { toShell(''); throw new Error('no session'); }
@@ -312,8 +315,23 @@
     ROLE_CODE = pr.data.role; ROLE = ROLE_LABEL[ROLE_CODE] || ROLE_CODE; NAME = pr.data.name || pr.data.email;
     var all = await sb.from('profiles').select('id,email,name,role').eq('active', true);
     (all.data || []).forEach(function (p) { var u = { name: p.name || p.email, role: ROLE_LABEL[p.role] || p.role }; USERS[p.id] = u; USERS[p.email] = u; });
-    var rows = await pageAll(function () { return sb.from('documents').select('path,data').order('path'); });
-    rows.forEach(function (r) { docs.set(r.path, r.data); });
+    var rows = await pageAll(function () { return sb.from('documents').select('path,data,updated_at').order('path'); });
+    var lastSync = '1970-01-01T00:00:00Z';
+    rows.forEach(function (r) { docs.set(r.path, r.data); if (r.updated_at > lastSync) lastSync = r.updated_at; });
+    // safety net under Realtime: every 45 s pull what changed since the last sync; every 5 min reconcile deletions
+    var tick = 0;
+    setInterval(function () {
+      tick += 1;
+      sb.from('documents').select('path,data,updated_at').gt('updated_at', lastSync).then(function (r) {
+        if (r.error || !r.data) return;
+        r.data.forEach(function (row) { applyRemote(row); if (row.updated_at > lastSync) lastSync = row.updated_at; });
+      });
+      if (tick % 7 === 0) sb.from('documents').select('path').then(function (r) {
+        if (r.error || !r.data) return;
+        var keep = {}; r.data.forEach(function (row) { keep[row.path] = 1; });
+        Array.from(docs.keys()).forEach(function (p) { if (!keep[p]) applyRemoteDelete({ path: p }); });
+      });
+    }, 45000);
     var lrows = await pageAll(function () { return sb.from('activity_log').select('*').order('at', { ascending: false }); });
     log = lrows.slice(0, LOG_MAX).reverse();
     sb.channel('tml-live')
@@ -321,8 +339,11 @@
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'documents' }, function (p) { applyRemote(p.new); })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'documents' }, function (p) { applyRemoteDelete(p.old); })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log' }, function (p) { applyRemoteLog(p.new); })
-      .subscribe();
+      .subscribe(function (status, err) { if (window.console && status !== 'SUBSCRIBED') console.warn('live updates:', status, err && err.message || ''); });
     sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT') toShell(''); });
+    // the header chip was rendered before the profile was known
+    var chip = document.getElementById('g-user');
+    if (chip) { chip.hidden = false; chip.textContent = NAME + (ROLE ? ' · ' + ROLE : ''); chip.title = 'Signed in as ' + EMAIL; }
     // one sign-in entry per tab session
     var sid = null; try { sid = sessionStorage.getItem('tmlcalc.log.sess'); } catch (e) {}
     if (!sid) {
