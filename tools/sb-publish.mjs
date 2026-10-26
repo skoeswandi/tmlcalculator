@@ -30,6 +30,6 @@ else console.log('index.html unchanged');
 const dirty = out('git status --porcelain').split('\n').filter(l => l && !l.startsWith('?? input/') && !l.startsWith('?? build/'));
 if (!dirty.length) { console.log('nothing to commit; Netlify already has this sign-in page. Bundle published to Supabase.'); process.exit(0); }
 sh("git add -A -- . ':(exclude)input'");   // build/ is git-ignored already
-sh(`git commit -q -m ${JSON.stringify(msg + '\n\nPublished with tools/sb-publish.mjs: bundle to Supabase, sign-in page to Netlify.')}`);
+sh(`git commit -q -m ${JSON.stringify(msg)} -m ${JSON.stringify('Published with tools/sb-publish.mjs: bundle to Supabase, sign-in page to Netlify.')}`);
 sh('git push -q origin main');
 console.log('pushed', out('git log --oneline -1'), '-> Netlify deploys in about a minute');
