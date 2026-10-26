@@ -46,7 +46,7 @@ fs.writeFileSync(path.join(root, 'build', 'app.sb.html'), app);
 
 // 2. the sign-in shell: the current gate page up to its script, with the Supabase sign-in instead
 const gate = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-const cut = gate.indexOf('<script>');
+const cut = gate.indexOf('<script');   // first script of any kind: the shell's own supabase-js tag or the old gate script
 if (cut < 0) { console.error('index.html has no <script>'); process.exit(1); }
 let shell = gate.slice(0, cut);
 shell = shell.replace(/<p class="foot">[\s\S]*?<\/p>/, `<p class="foot"><b>PT Tata Metal Lestari — internal pricing tool.</b><br>
