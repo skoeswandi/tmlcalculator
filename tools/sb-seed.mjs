@@ -4,7 +4,8 @@
 //   node tools/sb-seed.mjs --docs      upsert build/seed.json into public.documents (skips rows the db already has newer)
 //   node tools/sb-seed.mjs --hist      upsert build/order-docs-patch/hist/*.json into public.hist
 //   node tools/sb-seed.mjs --app       upload build/app.sb.html as app.html in the private "app" bucket
-//   node tools/sb-seed.mjs --all
+//   node tools/sb-seed.mjs --export   write the database to build/data/db/<collection>/<id>.json (the snapshot Cowork reads)
+//   node tools/sb-seed.mjs --all      users, docs, hist, app (not export)
 // .env.build: SUPABASE_URL, SUPABASE_SERVICE_KEY, SB_INITIAL_PASSWORD (for --users)
 import fs from 'fs';
 import path from 'path';
@@ -17,7 +18,7 @@ const URL_ = env.SUPABASE_URL, KEY = env.SUPABASE_SERVICE_KEY;
 if (!URL_ || !KEY) { console.error('SUPABASE_URL and SUPABASE_SERVICE_KEY must be in .env.build'); process.exit(2); }
 const sb = createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const flags = new Set(process.argv.slice(2));
-const want = (f) => flags.has('--all') || flags.has(f);
+const want = (f) => (flags.has('--all') && f !== '--export') || flags.has(f);
 if (!flags.size) { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 9).join('\n')); process.exit(0); }
 const die = (m, e) => { console.error(m, e && (e.message || e)); process.exit(1); };
 
@@ -77,4 +78,26 @@ if (want('--app')) {
   const r = await sb.storage.from('app').upload('app.html', body, { contentType: 'text/html; charset=utf-8', upsert: true, cacheControl: '0' });
   if (r.error) die('upload app.html', r.error);
   console.log('app bundle uploaded to bucket "app" as app.html,', (body.length / 1024).toFixed(0), 'KB');
+}
+
+if (want('--export')) {
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const r = await sb.from('documents').select('path,data,updated_at').order('path').range(from, from + 999);
+    if (r.error) die('read documents', r.error);
+    rows.push(...(r.data || [])); if (!r.data || r.data.length < 1000) break;
+  }
+  const base = path.join(root, 'build', 'data', 'db');
+  const counts = {};
+  for (const r of rows) {
+    const [col, id] = [r.path.slice(0, r.path.indexOf('/')), r.path.slice(r.path.indexOf('/') + 1)];
+    fs.mkdirSync(path.join(base, col), { recursive: true });
+    fs.writeFileSync(path.join(base, col, id + '.json'), JSON.stringify(r.data, null, 1));
+    counts[col] = (counts[col] || 0) + 1;
+  }
+  const seed = Object.fromEntries(rows.map(r => [r.path, r.data]));
+  fs.writeFileSync(path.join(root, 'build', 'seed.json'), JSON.stringify(seed));
+  const prof = await sb.from('profiles').select('email,name,role,active').order('email');
+  fs.writeFileSync(path.join(root, 'build', 'last-export.json'), JSON.stringify({ exportedAt: new Date().toISOString(), documents: rows.length, byCollection: counts, newestUpdatedAt: rows.map(r => r.updated_at).sort().pop() || null, profiles: prof.data || [] }, null, 2));
+  console.log('exported  ', rows.length, 'documents to build/data/db/', JSON.stringify(counts), '+ build/seed.json');
 }
